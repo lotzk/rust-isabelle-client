@@ -1,44 +1,6 @@
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde::{Deserialize, Serialize};
 
 use crate::common::*;
-
-pub trait ClientCommand<T> {}
-pub enum Args<T: serde::Serialize> {
-    Json(T),
-    String(String),
-    None,
-}
-pub struct Command<T: serde::Serialize> {
-    pub name: String,
-    pub args: Args<T>,
-}
-
-pub enum SyncResponse {
-    Ok(String),
-    Error(String),
-}
-
-#[derive(Debug)]
-pub enum SyncResult<T, E> {
-    Ok(T),
-    Error(E),
-}
-
-#[derive(Debug)]
-pub enum AsyncResult<T, E, F> {
-    Error(E),
-    Finished(T),
-    Failed(FailedResult<F>),
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct FailedResult<T> {
-    task: Task,
-    error_message: String,
-
-    #[serde(flatten)]
-    context: T,
-}
 
 /// Attempts to cancel the task with the specified task id.
 /// May get ignored by the running task.
@@ -80,7 +42,6 @@ impl SessionBuildArgs {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct SessionBuildResult {
-    task: String,
     /// The target session name as specified by the command
     session: String,
     /// True if building was successful

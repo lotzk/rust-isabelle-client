@@ -1,12 +1,63 @@
+use serde::Deserialize;
 use serde::Serialize;
 
 use crate::command::*;
 use crate::common::*;
+use std::fmt::Display;
 use std::io;
 use std::{
     io::{BufRead, BufReader, BufWriter, Write},
     net::TcpStream,
 };
+
+struct Command<T: serde::Serialize> {
+    pub name: String,
+    pub args: Option<T>,
+}
+
+impl<T: serde::Serialize> Command<T> {
+    /// Converts the command to a `\n`-terminated string the Isabelle server understands
+    pub fn as_string(&self) -> String {
+        let args = match &self.args {
+            Some(arg) => serde_json::to_string(&arg).expect("Could not serialize"),
+            None => "".to_owned(),
+        };
+        format!("{} {}\n", self.name, args)
+    }
+
+    /// Converts the command to a `\n`-terminated sequence of Bytes the Isabelle server understands
+    pub fn as_bytes(&self) -> Vec<u8> {
+        self.as_string().as_bytes().to_owned()
+    }
+}
+
+impl<T: serde::Serialize> Display for Command<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.as_string().trim())
+    }
+}
+
+#[derive(Debug)]
+pub enum SyncResult<T, E> {
+    Ok(T),
+    Error(E),
+}
+
+#[derive(Debug)]
+pub enum AsyncResult<T, E, F> {
+    Error(E),
+    Finished(T),
+    Failed(FailedResult<F>),
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct FailedResult<T> {
+    task: Task,
+    error_message: String,
+
+    #[serde(flatten)]
+    context: T,
+}
 
 /// Provides interaction with Isabelle servers.
 ///
@@ -37,15 +88,15 @@ impl IsabelleClient {
         let mut writer = BufWriter::new(stream.try_clone().unwrap());
         let mut reader = BufReader::new(stream.try_clone().unwrap());
 
-        writer.write(format!("{}\n", self.pass).as_bytes())?;
-        writer.flush();
+        writer.write_all(format!("{}\n", self.pass).as_bytes())?;
+        writer.flush()?;
 
         if let Ok(Some(e)) = stream.take_error() {
             panic!("Invalid password {}", e);
         }
 
         let mut res = String::new();
-        reader.read_line(&mut res);
+        reader.read_line(&mut res)?;
         log::info!("Handshake result: {}", res.trim());
         if !res.starts_with("OK") {
             return Err(io::Error::new(
@@ -58,13 +109,26 @@ impl IsabelleClient {
 
     fn parse_response<T: serde::de::DeserializeOwned>(&self, res: &str) -> Result<T, io::Error> {
         log::info!("Parsing response: {}", res);
-        match serde_json::from_str::<T>(&res) {
+        match serde_json::from_str::<T>(res) {
             Ok(r) => Ok(r),
             Err(e) => Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("{}: {}", e.to_string(), res),
+                format!("{}: {}", e, res),
             )),
         }
+    }
+
+    /// Opens a new connection and performs the initial password exchange
+    fn new_connection(&self) -> io::Result<(BufReader<TcpStream>, BufWriter<TcpStream>)> {
+        let con = TcpStream::connect(&self.addr)?;
+
+        // Perform password exchange
+        self.handshake(&con)?;
+
+        let writer = BufWriter::new(con.try_clone().unwrap());
+        let reader = BufReader::new(con.try_clone().unwrap());
+
+        Ok((reader, writer))
     }
 
     async fn dispatch_async<
@@ -76,33 +140,21 @@ impl IsabelleClient {
         &self,
         cmd: Command<T>,
     ) -> Result<AsyncResult<R, E, F>, io::Error> {
-        log::info!("Staring async command");
-        let con = TcpStream::connect(&self.addr)?;
-        let mut writer = BufWriter::new(con.try_clone().unwrap());
-        let mut reader = BufReader::new(con.try_clone().unwrap());
+        let (mut reader, mut writer) = self.new_connection()?;
 
-        let args = match cmd.args {
-            Args::Json(t) => serde_json::to_string(&t)?,
-            Args::String(s) => serde_json::to_string(&s)?,
-            Args::None => "".to_owned(),
-        };
-
-        self.handshake(&con)?;
-        let cmdstring = format!("{} {}\n", cmd.name, args);
-        log::info!("Dispatching command: {}", cmdstring.trim());
-        writer.write(cmdstring.as_bytes())?;
+        log::info!("Dispatching command: {}", cmd.as_string().trim());
+        writer.write_all(&cmd.as_bytes())?;
         writer.flush()?;
 
         let mut res = String::new();
-        reader.read_line(&mut res);
+        reader.read_line(&mut res)?;
         log::info!("Got immediate result: {}", res);
-        if res.trim().starts_with("OK") {
-            let task: Task = self.parse_response(&res.strip_prefix("OK").unwrap().trim())?;
+        let res = res.trim();
+        if let Some(ok_response) = res.strip_prefix("OK") {
+            let task: Task = self.parse_response(ok_response.trim())?;
             log::info!("Got the task: {:?}", task);
-            // log we go the task
-        } else if res.trim().starts_with("ERROR") {
-            let res = res.strip_prefix("ERROR").unwrap().trim().to_owned();
-            let res = self.parse_response(&res)?;
+        } else if let Some(err_response) = res.strip_prefix("ERROR") {
+            let res = self.parse_response(err_response.trim())?;
             return Ok(AsyncResult::Error(res));
         } else {
             return Err(io::Error::new(
@@ -110,20 +162,23 @@ impl IsabelleClient {
                 format!("Unknown message format: {}", res),
             ));
         }
+
         // Wait until finished or failed, collect notes in between
+        let mut res = String::new();
         loop {
             res.clear();
-            reader.read_line(&mut res);
+            reader.read_line(&mut res)?;
             let res = res.trim();
             log::info!("Read: {}", res);
-            if res.starts_with("FINISHED") {
-                let parsed = self.parse_response(&res)?;
+            if let Some(finish_response) = res.strip_prefix("FINISHED") {
+                let parsed = self.parse_response(finish_response.trim())?;
                 return Ok(AsyncResult::Finished(parsed));
-            } else if res.starts_with("FAILED") {
-                let parsed = self.parse_response(&res)?;
+            } else if let Some(failed_response) = res.strip_prefix("FAILED") {
+                let parsed = self.parse_response(failed_response.trim())?;
                 return Ok(AsyncResult::Failed(parsed));
-            } else if res.starts_with("NOTE") {
+            } else if let Some(note) = res.strip_prefix("NOTE") {
                 // handle note
+                log::info!("{}", note);
             } else {
                 log::warn!("Unknown message format: {}", res);
             }
@@ -138,29 +193,20 @@ impl IsabelleClient {
         &self,
         cmd: Command<T>,
     ) -> Result<SyncResult<R, E>, io::Error> {
-        let con = TcpStream::connect(&self.addr)?;
-        let mut writer = BufWriter::new(con.try_clone().unwrap());
-        let mut reader = BufReader::new(con.try_clone().unwrap());
+        let (mut reader, mut writer) = self.new_connection()?;
 
-        let args = match cmd.args {
-            Args::Json(t) => serde_json::to_string(&t)?,
-            Args::String(s) => serde_json::to_string(&s)?,
-            Args::None => "".to_owned(),
-        };
-
-        self.handshake(&con)?;
-        let cmdstring = format!("{} {}\n", cmd.name, args);
-        writer.write(cmdstring.as_bytes())?;
-        writer.flush();
+        log::info!("Dispatching command: {}", cmd.as_string().trim());
+        writer.write_all(&cmd.as_bytes())?;
+        writer.flush()?;
 
         let mut res = String::new();
-        reader.read_line(&mut res);
-        if res.trim().starts_with("OK") {
-            let res = self.parse_response(&res.strip_prefix("OK").unwrap().trim())?;
+        reader.read_line(&mut res)?;
+        let res = res.trim();
+        if let Some(response_ok) = res.strip_prefix("OK") {
+            let res = self.parse_response(response_ok.trim())?;
             Ok(SyncResult::Ok(res))
-        } else if res.trim().starts_with("ERROR") {
-            let res = res.strip_prefix("ERROR").unwrap().trim().to_owned();
-            let res = self.parse_response(&res)?;
+        } else if let Some(response_er) = res.strip_prefix("ERROR") {
+            let res = self.parse_response(response_er.trim())?;
             Ok(SyncResult::Error(res))
         } else {
             Err(io::Error::new(
@@ -173,7 +219,7 @@ impl IsabelleClient {
     pub async fn echo(&mut self, echo: &str) -> Result<SyncResult<String, String>, io::Error> {
         let cmd = Command {
             name: "echo".to_owned(),
-            args: Args::Json(echo.to_owned()),
+            args: Some(echo.to_owned()),
         };
 
         self.dispatch_sync(cmd).await
@@ -184,7 +230,7 @@ impl IsabelleClient {
     pub async fn shutdown(&mut self) -> Result<SyncResult<(), String>, io::Error> {
         let cmd: Command<()> = Command {
             name: "shutdown".to_owned(),
-            args: Args::None,
+            args: None,
         };
         self.dispatch_sync(cmd).await
     }
@@ -192,7 +238,7 @@ impl IsabelleClient {
     pub async fn cancel(&mut self, task_id: String) -> Result<SyncResult<(), ()>, io::Error> {
         let cmd = Command {
             name: "cancel".to_owned(),
-            args: Args::Json(CancelArgs { task: task_id }),
+            args: Some(CancelArgs { task: task_id }),
         };
         self.dispatch_sync(cmd).await
     }
@@ -203,7 +249,7 @@ impl IsabelleClient {
     ) -> Result<AsyncResult<SessionBuildResults, (), SessionBuildResults>, io::Error> {
         let cmd = Command {
             name: "session_build".to_owned(),
-            args: Args::Json(args),
+            args: Some(args),
         };
 
         self.dispatch_async(cmd).await
@@ -215,7 +261,7 @@ impl IsabelleClient {
     ) -> Result<AsyncResult<SessionStartResult, (), ()>, io::Error> {
         let cmd = Command {
             name: "session_start".to_owned(),
-            args: Args::Json(args),
+            args: Some(args),
         };
 
         self.dispatch_async(cmd).await
@@ -227,7 +273,7 @@ impl IsabelleClient {
     ) -> Result<AsyncResult<SessionStopResult, (), SessionStopResult>, io::Error> {
         let cmd = Command {
             name: "session_stop".to_owned(),
-            args: Args::Json(args),
+            args: Some(args),
         };
 
         self.dispatch_async(cmd).await
@@ -239,7 +285,7 @@ impl IsabelleClient {
     ) -> Result<AsyncResult<UseTheoryResults, (), ()>, io::Error> {
         let cmd = Command {
             name: "use_theories".to_owned(),
-            args: Args::Json(args),
+            args: Some(args),
         };
 
         self.dispatch_async(cmd).await
@@ -251,7 +297,7 @@ impl IsabelleClient {
     ) -> Result<AsyncResult<PurgeTheoryResult, (), ()>, io::Error> {
         let cmd = Command {
             name: "purge_theories".to_owned(),
-            args: Args::Json(args),
+            args: Some(args),
         };
 
         self.dispatch_async(cmd).await
