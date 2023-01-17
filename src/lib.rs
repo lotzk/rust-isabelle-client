@@ -1,6 +1,9 @@
-pub mod client;
-pub mod command;
+mod client;
+pub mod commands;
 pub mod common;
+pub mod server;
+
+pub use client::IsabelleClient;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right

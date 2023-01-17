@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::command::*;
+use crate::commands::*;
 use crate::common::*;
 use std::fmt::Display;
 use std::io;
