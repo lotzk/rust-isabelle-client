@@ -3,7 +3,8 @@ pub mod commands;
 pub mod common;
 pub mod server;
 
-pub use client::IsabelleClient;
+pub use client::{AsyncResult, IsabelleClient, SyncResult};
+pub use commands::*;
 
 pub fn add(left: usize, right: usize) -> usize {
     left + right
