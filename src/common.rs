@@ -60,7 +60,7 @@ pub struct NodeStatus {
     running: usize,
     warned: usize,
     failed: usize,
-    cancelled: bool,
+    canceled: bool,
     consolidated: bool,
-    percentage: bool,
+    percentage: usize,
 }

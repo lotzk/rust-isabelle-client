@@ -4,13 +4,17 @@ use std::{
 };
 
 /// Runs the Isabelle server command to obtain port and password from a running server instance.
-/// If no server is running, then this will start a new instance that will run locally.
-/// If there a running Isabelle server, return the port and password from this server.
+/// If no name is given, the default (`isabelle`) is used.
+/// If there is a server running with the given name, function will return the port and password of the instance.
+/// If there is no server running with the given name, the function starts a new server.
 ///
-/// Use `IsabelleClient.shutdown()` to quit the server.
-pub fn run_server() -> io::Result<(u32, String)> {
+/// If the server was created by this function, it will be terminated once the program exists.
+/// If it connected to an already running instance, it won't be terminated after the program exists, but you can use `IsabelleClient.shutdown()` to shut down the server.
+pub fn run_server(name: Option<&str>) -> io::Result<(u32, String)> {
     let mut handle = Command::new("isabelle")
         .arg("server")
+        .arg("-n")
+        .arg(name.unwrap_or("isabelle"))
         .stdout(Stdio::piped())
         .spawn()?;
 

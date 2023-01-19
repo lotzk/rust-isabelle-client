@@ -13,7 +13,7 @@ pub struct CancelArgs {
 /// Prepares a session image for interactive use of theories.
 /// The build process is asynchronous, with notifications that inform about the progress of loaded theories.
 #[derive(Deserialize, Serialize, Default, Debug)]
-pub struct SessionBuildArgs {
+pub struct SessionBuildStartArgs {
     /// Specifies the target session name. The build process will produce all required ancestor images according to the overall session graph.
     pub session: String,
     /// Environment of Isabelle system options is determined from preferences
@@ -31,7 +31,7 @@ pub struct SessionBuildArgs {
     pub include_session: Vec<String>,
 }
 
-impl SessionBuildArgs {
+impl SessionBuildStartArgs {
     pub fn session(session: &str) -> Self {
         Self {
             session: session.to_string(),
@@ -43,11 +43,11 @@ impl SessionBuildArgs {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct SessionBuildResult {
     /// The target session name as specified by the command
-    session: String,
+    pub session: String,
     /// True if building was successful
-    ok: bool,
+    pub ok: bool,
     /// Is zero if `ok` is true. Non-zero return code indicates and error.
-    return_code: usize,
+    pub return_code: usize,
     /// If true, the build process was aborted after running too long
     timeout: bool,
     /// Overall timing
@@ -57,65 +57,65 @@ pub struct SessionBuildResult {
 #[derive(Deserialize, Serialize, Debug)]
 pub struct SessionBuildResults {
     /// All sessions ok
-    ok: bool,
+    pub ok: bool,
     /// Is zero if `ok` is true. Non-zero return code indicates and error.
     return_code: usize,
     /// The result of each build sessions
-    sessions: Vec<SessionBuildResult>,
-}
-
-/// Starts a new Isabelle/PIDE session with un- derlying Isabelle/ML process, based on a session image that it produces on demand using session_build.
-/// Sessions are independent of client connections: it is possible to start a session and later apply `use_theories` on different connections, as long as the internal session identifier is known.
-/// Shared theory imports will be used only once (and persist until purged explicitly).
-#[derive(Deserialize, Serialize, Debug)]
-pub struct SessionStartArgs {
-    /// The target session name as specified by the command
-    session: String,
-    /// True if building was successful
-    ok: bool,
-    /// Is zero if `ok` is true. Non-zero return code indicates and error.
-    return_code: usize,
-    /// If true, the build process was aborted after running too long
-    timeout: bool,
-    /// Overall timing
-    timing: Timing,
+    pub sessions: Vec<SessionBuildResult>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct SessionStartResult {
-    task: String,
+    pub task: String,
     /// Internal identification of the session object within the server process
-    session_id: String,
+    pub session_id: String,
     /// Temporary directory that is specifically cre- ated for this session and deleted after it has been stopped.
     /// As tmp_dir is the default master_dir for commands use_theories and purge_theories, theory files copied there may be used without further path specification.
-    tmp_dir: Option<String>,
+    pub tmp_dir: Option<String>,
 }
 
 /// Forces a shutdown of the identified session.
 #[derive(Deserialize, Serialize, Debug)]
 pub struct SessionStopArgs {
     /// Id of the session to stop
-    session_id: String,
+    pub session_id: String,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct SessionStopResult {
-    task: String,
-    ok: bool,
-    return_code: usize,
+    pub task: String,
+    pub ok: bool,
+    pub return_code: usize,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
+#[derive(Deserialize, Serialize, Debug, Default)]
 pub struct UseTheoryArgs {
-    session_id: String,
-    theories: Vec<String>,
-    master_dir: Option<String>,
-    unicode_symbols: Option<bool>,
-    export_pattern: Option<String>,
-    check_delay: Option<f64>,
-    check_limit: Option<usize>,
-    watchdog_timeout: Option<f64>,
-    nodes_status_delay: Option<f64>,
+    pub session_id: String,
+    pub theories: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub master_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unicode_symbols: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub export_pattern: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_delay: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_limit: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watchdog_timeout: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nodes_status_delay: Option<f64>,
+}
+
+impl UseTheoryArgs {
+    pub fn for_session(session_id: &str, theories: &[&str]) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            theories: theories.iter().map(|t| t.to_string()).collect(),
+            ..Default::default()
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Debug)]
@@ -132,6 +132,8 @@ pub struct Export {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct NodeResults {
+    #[serde(flatten)]
+    node: Node,
     status: NodeStatus,
     messages: Vec<Message>,
     exports: Vec<Export>,
@@ -139,10 +141,10 @@ pub struct NodeResults {
 
 #[derive(Deserialize, Serialize, Debug)]
 pub struct UseTheoryResults {
-    task: String,
-    ok: bool,
-    errors: Vec<Message>,
-    nodes: Vec<(Node, NodeResults)>,
+    pub task: String,
+    pub ok: bool,
+    pub errors: Vec<Message>,
+    pub nodes: Vec<NodeResults>,
 }
 
 #[derive(Deserialize, Serialize, Debug)]
