@@ -171,7 +171,7 @@ impl IsabelleClient {
                 let res = self.parse_response(err_response.trim())?;
                 return Ok(AsyncResult::Error(res));
             } else {
-                log::warn!("Unknown message format: {}", res);
+                log::trace!("Unknown message format: {}", res);
             }
         }
 
@@ -192,7 +192,7 @@ impl IsabelleClient {
                 // handle note
                 log::trace!("{}", note);
             } else {
-                log::warn!("Unknown message format: {}", res);
+                log::trace!("Unknown message format: {}", res);
             }
         }
     }
