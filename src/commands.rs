@@ -28,7 +28,7 @@ pub struct SessionBuildStartArgs {
     /// Specifies sessions whose theories should be included in the overall name space of session-qualified theory names.
     /// Corresponds to `session` specification in `ROOT` files.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub include_session: Vec<String>,
+    pub include_sessions: Vec<String>,
 }
 
 impl SessionBuildStartArgs {
