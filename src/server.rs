@@ -35,7 +35,7 @@ pub fn run_server(name: Option<&str>) -> io::Result<(u32, String)> {
     let port = caps.get(1).unwrap().as_str().parse::<u32>().unwrap();
     let passwd = caps.get(2).unwrap().as_str().to_owned();
 
-    log::info!("using Isabelle server on port: {}", port,);
+    log::trace!("Using Isabelle server on port: {}", port);
 
     io::Result::Ok((port, passwd))
 }

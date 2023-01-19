@@ -99,7 +99,7 @@ impl IsabelleClient {
 
         let mut res = String::new();
         reader.read_line(&mut res)?;
-        log::info!("Handshake result: {}", res.trim());
+        log::trace!("Handshake result: {}", res.trim());
         if !res.starts_with("OK") {
             return Err(io::Error::new(
                 io::ErrorKind::ConnectionReset,
@@ -117,7 +117,7 @@ impl IsabelleClient {
             // Workaround for json compliance, unit type is `null` not empty string
             res = "null";
         }
-        log::info!("Parsing response: '{}'", res);
+        log::trace!("Parsing response: '{}'", res);
         match serde_json::from_str::<T>(res) {
             Ok(r) => Ok(r),
             Err(e) => Err(io::Error::new(
@@ -150,7 +150,7 @@ impl IsabelleClient {
     ) -> Result<AsyncResult<R, F>, io::Error> {
         let (mut reader, mut writer) = self.new_connection()?;
 
-        log::info!("Dispatching command: {}", cmd.as_string().trim());
+        log::trace!("Dispatching command: {}", cmd.as_string().trim());
         writer.write_all(&cmd.as_bytes())?;
         writer.flush()?;
 
@@ -159,12 +159,12 @@ impl IsabelleClient {
             // The server will sometimes produces output messages that should not happen, e.g., some random numbers
             let mut res = String::new();
             reader.read_line(&mut res)?;
-            log::info!("Got immediate result: {}", res);
+            log::trace!("Got immediate result: {}", res);
             let res = res.trim();
 
             if let Some(ok_response) = res.strip_prefix("OK") {
                 let task: Task = self.parse_response(ok_response.trim())?;
-                log::info!("Got the task: {:?}", task);
+                log::trace!("Got the task: {:?}", task);
                 break;
             } else if let Some(err_response) = res.strip_prefix("ERROR") {
                 println!("hier");
@@ -181,7 +181,7 @@ impl IsabelleClient {
             res.clear();
             reader.read_line(&mut res)?;
             let res = res.trim();
-            log::info!("Read: {}", res);
+            log::trace!("Read: {}", res);
             if let Some(finish_response) = res.strip_prefix("FINISHED") {
                 let parsed = self.parse_response(finish_response.trim())?;
                 return Ok(AsyncResult::Finished(parsed));
@@ -190,7 +190,7 @@ impl IsabelleClient {
                 return Ok(AsyncResult::Failed(parsed));
             } else if let Some(note) = res.strip_prefix("NOTE") {
                 // handle note
-                log::info!("{}", note);
+                log::trace!("{}", note);
             } else {
                 log::warn!("Unknown message format: {}", res);
             }
@@ -207,7 +207,7 @@ impl IsabelleClient {
     ) -> Result<SyncResult<R, E>, io::Error> {
         let (mut reader, mut writer) = self.new_connection()?;
 
-        log::info!("Dispatching command: {}", cmd.as_string().trim());
+        log::trace!("Dispatching command: {}", cmd.as_string().trim());
         writer.write_all(&cmd.as_bytes())?;
         writer.flush()?;
 
