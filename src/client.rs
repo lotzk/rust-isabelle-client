@@ -55,10 +55,10 @@ pub struct FailedResult<T> {
     #[serde(flatten)]
     task: Task,
     #[serde(flatten)]
-    message: Message,
+    pub message: Message,
 
     #[serde(flatten)]
-    context: Option<T>,
+    pub context: Option<T>,
 }
 
 /// Provides interaction with Isabelle servers.
