@@ -147,8 +147,36 @@ pub struct UseTheoryResults {
     pub nodes: Vec<NodeResults>,
 }
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct PurgeTheoryArgs {}
+#[derive(Deserialize, Serialize, Debug, Default)]
+pub struct PurgeTheoryArgs {
+    pub session_id: String,
+    pub theories: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub master_dir: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub all: Option<bool>,
+}
 
-#[derive(Deserialize, Serialize, Debug)]
-pub struct PurgeTheoryResult {}
+impl PurgeTheoryArgs {
+    pub fn for_session(session_id: &str, theories: &[&str]) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            theories: theories.iter().map(|t| t.to_string()).collect(),
+            ..Default::default()
+        }
+    }
+}
+
+/// The system manual states that the result is of the form `{purged: [String]}`, which is incorrect.
+/// The struct models what is actually returned by the server.
+#[derive(Deserialize, Serialize, Debug, Default)]
+pub struct PurgeTheoryResults {
+    pub purged: Vec<PurgedTheory>,
+    pub retained: Vec<PurgedTheory>,
+}
+
+#[derive(Deserialize, Serialize, Debug, Default)]
+pub struct PurgedTheory {
+    pub node_name: String,
+    pub theory_name: String,
+}

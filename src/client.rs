@@ -210,21 +210,19 @@ impl IsabelleClient {
         log::trace!("Dispatching command: {}", cmd.as_string().trim());
         writer.write_all(&cmd.as_bytes())?;
         writer.flush()?;
-
-        let mut res = String::new();
-        reader.read_line(&mut res)?;
-        let res = res.trim();
-        if let Some(response_ok) = res.strip_prefix("OK") {
-            let res = self.parse_response(response_ok.trim())?;
-            Ok(SyncResult::Ok(res))
-        } else if let Some(response_er) = res.strip_prefix("ERROR") {
-            let res = self.parse_response(response_er.trim())?;
-            Ok(SyncResult::Error(res))
-        } else {
-            Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("Unknown message format: {}", res),
-            ))
+        loop {
+            let mut res = String::new();
+            reader.read_line(&mut res)?;
+            let res = res.trim();
+            if let Some(response_ok) = res.strip_prefix("OK") {
+                let res = self.parse_response(response_ok.trim())?;
+                return Ok(SyncResult::Ok(res));
+            } else if let Some(response_er) = res.strip_prefix("ERROR") {
+                let res = self.parse_response(response_er.trim())?;
+                return Ok(SyncResult::Error(res));
+            } else {
+                log::trace!("Unknown message format: {}", res);
+            }
         }
     }
 
@@ -306,13 +304,13 @@ impl IsabelleClient {
     pub async fn purge_theories(
         &mut self,
         args: PurgeTheoryArgs,
-    ) -> Result<AsyncResult<PurgeTheoryResult, ()>, io::Error> {
+    ) -> Result<SyncResult<PurgeTheoryResults, ()>, io::Error> {
         let cmd = Command {
             name: "purge_theories".to_owned(),
             args: Some(args),
         };
 
-        self.dispatch_async(cmd).await
+        self.dispatch_sync(cmd).await
     }
 }
 
