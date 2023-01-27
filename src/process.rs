@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     io,
     path::PathBuf,
-    process::{Child, Command, Output, Stdio},
+    process::{Command, Output, Stdio},
 };
 
 /// Arguments for running the raw ML process in batch mode.
@@ -20,7 +20,7 @@ pub struct ProcessArgs {
 
 /// Runs the raw ML process in batch mode.
 /// Arguments for the command are specified in [ProcessArgs]
-pub fn run_process(args: &ProcessArgs, current_dir: Option<&PathBuf>) -> io::Result<Output> {
+pub fn batch_process(args: &ProcessArgs, current_dir: Option<&PathBuf>) -> io::Result<Output> {
     let mut isabelle_cmd = Command::new("isabelle");
 
     isabelle_cmd
