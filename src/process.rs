@@ -2,8 +2,9 @@ use std::{
     collections::HashMap,
     io,
     path::PathBuf,
-    process::{Command, Output, Stdio},
+    process::{Output, Stdio},
 };
+use tokio::process::Command;
 
 /// Arguments for running the raw ML process in batch mode.
 pub struct ProcessArgs {
@@ -19,8 +20,12 @@ pub struct ProcessArgs {
 }
 
 /// Runs the raw ML process in batch mode.
-/// Arguments for the command are specified in [ProcessArgs]
-pub fn batch_process(args: &ProcessArgs, current_dir: Option<&PathBuf>) -> io::Result<Output> {
+/// Arguments for the command are specified in [ProcessArgs].
+/// Returns the process' output.
+pub async fn batch_process(
+    args: &ProcessArgs,
+    current_dir: Option<&PathBuf>,
+) -> io::Result<Output> {
     let mut isabelle_cmd = Command::new("isabelle");
 
     isabelle_cmd
@@ -43,7 +48,7 @@ pub fn batch_process(args: &ProcessArgs, current_dir: Option<&PathBuf>) -> io::R
         isabelle_cmd.arg("-o").arg(format!("{}={}", k, v));
     }
 
-    isabelle_cmd.spawn()?.wait_with_output()
+    isabelle_cmd.spawn()?.wait_with_output().await
 }
 
 /// Builder that conveniently allows to specify common Isabelle options.
