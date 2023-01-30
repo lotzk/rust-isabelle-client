@@ -10,6 +10,8 @@ use std::{
     net::TcpStream,
 };
 
+/// A command to be sent to the Isabelle server.
+/// It consists of a `name` and optional arguments `args` which are serialized as JSON.
 struct Command<T: serde::Serialize> {
     pub name: String,
     pub args: Option<T>,
@@ -17,7 +19,7 @@ struct Command<T: serde::Serialize> {
 
 impl<T: serde::Serialize> Command<T> {
     /// Converts the command to a `\n`-terminated string the Isabelle server understands
-    pub fn as_string(&self) -> String {
+    fn as_string(&self) -> String {
         let args = match &self.args {
             Some(arg) => serde_json::to_string(&arg).expect("Could not serialize"),
             None => "".to_owned(),
@@ -26,7 +28,7 @@ impl<T: serde::Serialize> Command<T> {
     }
 
     /// Converts the command to a `\n`-terminated sequence of Bytes the Isabelle server understands
-    pub fn as_bytes(&self) -> Vec<u8> {
+    fn as_bytes(&self) -> Vec<u8> {
         self.as_string().as_bytes().to_owned()
     }
 }
@@ -37,35 +39,41 @@ impl<T: serde::Serialize> Display for Command<T> {
     }
 }
 
+/// Result of a synchronous command sent to the Isabelle server.
 #[derive(Debug)]
 pub enum SyncResult<T, E> {
+    /// If the command was successful (server returned `OK`), contains the result value of type `T`.
     Ok(T),
+    /// If the command was unsuccessful (server returned `ERROR`), contains an error value of type `E`.
     Error(E),
 }
 
+/// Result of an asynchronous command sent to the Isabelle server.
 #[derive(Debug)]
 pub enum AsyncResult<T, F> {
-    Error(Message),
+    /// If the task associated with the command was successful (server returned `FINISHED`), contains the result value of type `T`.
     Finished(T),
+    /// If the task associated with the command failed (server returned `FAILED`), contains a [FailedResult] value of type `F`.
     Failed(FailedResult<F>),
+    /// If the async command fails immediately, contains the message
+    Error(Message),
 }
 
+/// Result of a failed asynchronous task.
 #[derive(Serialize, Deserialize, Debug)]
 pub struct FailedResult<T> {
+    /// Task identifier
     #[serde(flatten)]
     task: Task,
+    /// Information about the error as returned from the server
     #[serde(flatten)]
     pub message: Message,
-
+    /// Context information returned from the server
     #[serde(flatten)]
     pub context: Option<T>,
 }
 
 /// Provides interaction with Isabelle servers.
-///
-/// The Isabelle server listens on a TCP socket.
-/// A command always produces a results.
-/// Asynchronous commands return a task identifier indicating an working process that is joined later.
 pub struct IsabelleClient {
     addr: String,
     pass: String,
@@ -73,10 +81,10 @@ pub struct IsabelleClient {
 
 impl IsabelleClient {
     /// Connect to an Isabelle server.
-    /// The server name is sufficient for identification, as the client can determine the connection details from the local database of active servers.
     ///
     /// - `address`: specifies the server address, default is 127.0.0.1
     /// - `port`: specifies the server port
+    /// - `pass`: the password
     pub fn connect(address: Option<&str>, port: u32, pass: &str) -> Self {
         let addr = format!("{}:{}", address.unwrap_or("127.0.0.1"), port);
 
@@ -86,15 +94,17 @@ impl IsabelleClient {
         }
     }
 
-    fn handshake(&self, stream: &TcpStream) -> Result<(), io::Error> {
+    /// Performs the initial password exchange(i.e. password exchange) between a new client client and server.
+    /// Returns a `Result` indicating the success or failure of the handshake.
+    fn handshake(&self, stream: &TcpStream) -> io::Result<()> {
         let mut writer = BufWriter::new(stream.try_clone().unwrap());
         let mut reader = BufReader::new(stream.try_clone().unwrap());
 
         writer.write_all(format!("{}\n", self.pass).as_bytes())?;
         writer.flush()?;
 
-        if let Ok(Some(e)) = stream.take_error() {
-            panic!("Invalid password {}", e);
+        if let Some(e) = stream.take_error()? {
+            return Err(e);
         }
 
         let mut res = String::new();
@@ -102,13 +112,15 @@ impl IsabelleClient {
         log::trace!("Handshake result: {}", res.trim());
         if !res.starts_with("OK") {
             return Err(io::Error::new(
-                io::ErrorKind::ConnectionReset,
-                "Invalid password".to_owned(),
+                io::ErrorKind::PermissionDenied,
+                "Handshake failed",
             ));
         }
+        log::trace!("Handshake ok");
         Ok(())
     }
 
+    /// Facility to parse JSON responses from the Isabelle server into Rust types
     fn parse_response<T: serde::de::DeserializeOwned>(
         &self,
         mut res: &str,
@@ -117,7 +129,6 @@ impl IsabelleClient {
             // Workaround for json compliance, unit type is `null` not empty string
             res = "null";
         }
-        log::trace!("Parsing response: '{}'", res);
         match serde_json::from_str::<T>(res) {
             Ok(r) => Ok(r),
             Err(e) => Err(io::Error::new(
@@ -127,7 +138,9 @@ impl IsabelleClient {
         }
     }
 
-    /// Opens a new connection and performs the initial password exchange
+    /// Creates a new connection to the server and performs the initial password exchange
+    /// handshake. Returns a tuple of buffered reader and writer wrapped around the TcpStream
+    /// connection.
     fn new_connection(&self) -> io::Result<(BufReader<TcpStream>, BufWriter<TcpStream>)> {
         let con = TcpStream::connect(&self.addr)?;
 
@@ -140,74 +153,76 @@ impl IsabelleClient {
         Ok((reader, writer))
     }
 
+    /// Dispatches asynchronous [Command] `cmd` to start the task on the server.
+    ///
+    /// The method dispatches the `cmd` which starts an asynchronous task at the server.
+    /// The method then waits for the task to finish or fail by reading the response and returns the result
+    /// as an `AsyncResult<R, F>` where `R` is the type of the response when the task is finished and
+    /// `F` is the type of the response when the task fails.
+    ///
+    /// Notes printed by the server are logged and cannot be accessed.
+    ///
+    /// Returns an `io::Error` if communication with the server failed.
     async fn dispatch_async<
         T: Serialize,
         R: serde::de::DeserializeOwned,
         F: serde::de::DeserializeOwned,
     >(
         &self,
-        cmd: Command<T>,
+        cmd: &Command<T>,
+        reader: &mut BufReader<TcpStream>,
+        writer: &mut BufWriter<TcpStream>,
     ) -> Result<AsyncResult<R, F>, io::Error> {
-        let (mut reader, mut writer) = self.new_connection()?;
+        // Dispatch the command as sync to start the task. Return Error if it failed
+        if let SyncResult::Error(e) = self
+            .dispatch_sync::<T, Task, Message>(&cmd, reader, writer)
+            .await?
+        {
+            // Cast to async result
+            return Ok(AsyncResult::Error(e));
+        };
 
-        log::trace!("Dispatching command: {}", cmd.as_string().trim());
-        writer.write_all(&cmd.as_bytes())?;
-        writer.flush()?;
-
-        loop {
-            // Loop here until either OK or ERROR is returned by the server
-            // The server will sometimes produces output messages that should not happen, e.g., some random numbers
-            let mut res = String::new();
-            reader.read_line(&mut res)?;
-            log::trace!("Got immediate result: {}", res);
-            let res = res.trim();
-
-            if let Some(ok_response) = res.strip_prefix("OK") {
-                let task: Task = self.parse_response(ok_response.trim())?;
-                log::trace!("Got the task: {:?}", task);
-                break;
-            } else if let Some(err_response) = res.strip_prefix("ERROR") {
-                println!("hier");
-                let res = self.parse_response(err_response.trim())?;
-                return Ok(AsyncResult::Error(res));
-            } else {
-                log::trace!("Unknown message format: {}", res);
-            }
-        }
-
-        // Wait until finished or failed, collect notes in between
+        // Wait for the task to finish or fail, and collect notes along the way
         let mut res = String::new();
         loop {
             res.clear();
             reader.read_line(&mut res)?;
             let res = res.trim();
-            log::trace!("Read: {}", res);
             if let Some(finish_response) = res.strip_prefix("FINISHED") {
+                // If the task has finished, parse the response
                 let parsed = self.parse_response(finish_response.trim())?;
                 return Ok(AsyncResult::Finished(parsed));
             } else if let Some(failed_response) = res.strip_prefix("FAILED") {
+                // If the task has failed, parse the response
                 let parsed = self.parse_response(failed_response.trim())?;
                 return Ok(AsyncResult::Failed(parsed));
             } else if let Some(note) = res.strip_prefix("NOTE") {
-                // handle note
+                // If it's a note, log it and continue the loop
                 log::trace!("{}", note);
             } else {
+                // Occasionally the server omits some seemingly random numeric logs.
+                // Log and discard them, then continue the loop.
                 log::trace!("Unknown message format: {}", res);
             }
         }
     }
 
+    /// Dispatches synchronous [Command] `cmd` to the server in and return the result.
+    ///
+    /// Sends the `cmd` to the server and reads the response, which is either "OK" or "ERROR".
+    /// Returns the corresponding result wrapped in a [SyncResult] enum.
+    ///
+    /// Returns an `io::Error` if communication with the server failed.
     async fn dispatch_sync<
         T: Serialize,
         R: serde::de::DeserializeOwned,
         E: serde::de::DeserializeOwned,
     >(
         &self,
-        cmd: Command<T>,
+        cmd: &Command<T>,
+        reader: &mut BufReader<TcpStream>,
+        writer: &mut BufWriter<TcpStream>,
     ) -> Result<SyncResult<R, E>, io::Error> {
-        let (mut reader, mut writer) = self.new_connection()?;
-
-        log::trace!("Dispatching command: {}", cmd.as_string().trim());
         writer.write_all(&cmd.as_bytes())?;
         writer.flush()?;
         loop {
@@ -221,38 +236,46 @@ impl IsabelleClient {
                 let res = self.parse_response(response_er.trim())?;
                 return Ok(SyncResult::Error(res));
             } else {
+                // Occasionally the server omits some seemingly random numeric logs.
+                // Log and discard them, then continue the loop.
                 log::trace!("Unknown message format: {}", res);
             }
         }
     }
 
+    /// Identity function: Returns its argument as result
     pub async fn echo(&mut self, echo: &str) -> Result<SyncResult<String, String>, io::Error> {
         let cmd = Command {
             name: "echo".to_owned(),
             args: Some(echo.to_owned()),
         };
-
-        self.dispatch_sync(cmd).await
+        let (mut reader, mut writer) = self.new_connection()?;
+        self.dispatch_sync(&cmd, &mut reader, &mut writer).await
     }
 
-    /// It forces a shut- down of the connected server process, stopping all open sessions and closing the server socket.
+    /// Forces a shut- down of the connected server process, stopping all open sessions and closing the server socket.
     /// This may disrupt pending commands on other connections.
     pub async fn shutdown(&mut self) -> Result<SyncResult<(), String>, io::Error> {
         let cmd: Command<()> = Command {
             name: "shutdown".to_owned(),
             args: None,
         };
-        self.dispatch_sync(cmd).await
+        let (mut reader, mut writer) = self.new_connection()?;
+        self.dispatch_sync(&cmd, &mut reader, &mut writer).await
     }
 
+    /// Attempts to cancel the specified task.
+    /// Cancellation is merely a hint that the client prefers an ongoing process to be stopped.
     pub async fn cancel(&mut self, task_id: String) -> Result<SyncResult<(), ()>, io::Error> {
         let cmd = Command {
             name: "cancel".to_owned(),
             args: Some(CancelArgs { task: task_id }),
         };
-        self.dispatch_sync(cmd).await
+        let (mut reader, mut writer) = self.new_connection()?;
+        self.dispatch_sync(&cmd, &mut reader, &mut writer).await
     }
 
+    /// Prepares a session image for interactive use of theories.
     pub async fn session_build(
         &mut self,
         args: &SessionBuildStartArgs,
@@ -261,10 +284,12 @@ impl IsabelleClient {
             name: "session_build".to_owned(),
             args: Some(args),
         };
-
-        self.dispatch_async(cmd).await
+        let (mut reader, mut writer) = self.new_connection()?;
+        self.dispatch_async(&cmd, &mut reader, &mut writer).await
     }
 
+    /// Starts a new Isabelle/PIDE session with underlying Isabelle/ML process, based on a session image that it produces on demand using `session_build`.
+    /// Returns the `session_id`, which provides the internal identification of the session object within the server process.
     pub async fn session_start(
         &mut self,
         args: &SessionBuildStartArgs,
@@ -274,9 +299,11 @@ impl IsabelleClient {
             args: Some(args),
         };
 
-        self.dispatch_async(cmd).await
+        let (mut reader, mut writer) = self.new_connection()?;
+        self.dispatch_async(&cmd, &mut reader, &mut writer).await
     }
 
+    /// Forces a shutdown of the identified session.
     pub async fn session_stop(
         &mut self,
         args: &SessionStopArgs,
@@ -286,9 +313,11 @@ impl IsabelleClient {
             args: Some(args),
         };
 
-        self.dispatch_async(cmd).await
+        let (mut reader, mut writer) = self.new_connection()?;
+        self.dispatch_async(&cmd, &mut reader, &mut writer).await
     }
 
+    /// Updates the identified session by adding the current version of theory files to it, while dependencies are resolved implicitly.
     pub async fn use_theories(
         &mut self,
         args: &UseTheoryArgs,
@@ -298,9 +327,12 @@ impl IsabelleClient {
             args: Some(args),
         };
 
-        self.dispatch_async(cmd).await
+        let (mut reader, mut writer) = self.new_connection()?;
+        self.dispatch_async(&cmd, &mut reader, &mut writer).await
     }
 
+    /// Updates the identified session by removing theories.
+    /// Theories that are used in pending use_theories tasks or imported by other theories are retained.
     pub async fn purge_theories(
         &mut self,
         args: PurgeTheoryArgs,
@@ -310,7 +342,8 @@ impl IsabelleClient {
             args: Some(args),
         };
 
-        self.dispatch_sync(cmd).await
+        let (mut reader, mut writer) = self.new_connection()?;
+        self.dispatch_sync(&cmd, &mut reader, &mut writer).await
     }
 }
 
@@ -487,12 +520,5 @@ mod test {
         } else {
             unreachable!()
         }
-    }
-
-    #[tokio::test]
-    #[serial]
-    #[ignore]
-    async fn use_theory_invalid() {
-        //TODO: Try to load a theory with an invalid proof
     }
 }
