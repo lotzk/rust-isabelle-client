@@ -1,8 +1,8 @@
 use serde::Deserialize;
 use serde::Serialize;
 
-use crate::commands::*;
-use crate::common::*;
+use super::commands::*;
+use super::results::*;
 use std::fmt::Display;
 use std::io;
 use std::{
@@ -48,6 +48,15 @@ pub enum SyncResult<T, E> {
     Error(E),
 }
 
+impl<T, E> SyncResult<T, E> {
+    pub fn unwrap(&self) -> &T {
+        match self {
+            SyncResult::Ok(t) => t,
+            SyncResult::Error(_) => panic!("Called unwrap on error value"),
+        }
+    }
+}
+
 /// Result of an asynchronous command sent to the Isabelle server.
 #[derive(Debug)]
 pub enum AsyncResult<T, F> {
@@ -57,6 +66,16 @@ pub enum AsyncResult<T, F> {
     Failed(FailedResult<F>),
     /// If the async command fails immediately, contains the message
     Error(Message),
+}
+
+impl<T, F> AsyncResult<T, F> {
+    pub fn unwrap(&self) -> &T {
+        match self {
+            AsyncResult::Finished(t) => t,
+            AsyncResult::Failed(_) => panic!("Called unwrap on Failed result"),
+            AsyncResult::Error(_) => panic!("Called unwrap on Error result"),
+        }
+    }
 }
 
 /// Result of a failed asynchronous task.
@@ -278,7 +297,7 @@ impl IsabelleClient {
     /// Prepares a session image for interactive use of theories.
     pub async fn session_build(
         &mut self,
-        args: &SessionBuildStartArgs,
+        args: &SessionBuildArgs,
     ) -> Result<AsyncResult<SessionBuildResults, SessionBuildResults>, io::Error> {
         let cmd = Command {
             name: "session_build".to_owned(),
@@ -292,7 +311,7 @@ impl IsabelleClient {
     /// Returns the `session_id`, which provides the internal identification of the session object within the server process.
     pub async fn session_start(
         &mut self,
-        args: &SessionBuildStartArgs,
+        args: &SessionBuildArgs,
     ) -> Result<AsyncResult<SessionStartResult, ()>, io::Error> {
         let cmd = Command {
             name: "session_start".to_owned(),
@@ -320,7 +339,7 @@ impl IsabelleClient {
     /// Updates the identified session by adding the current version of theory files to it, while dependencies are resolved implicitly.
     pub async fn use_theories(
         &mut self,
-        args: &UseTheoryArgs,
+        args: &UseTheoriesArgs,
     ) -> Result<AsyncResult<UseTheoryResults, ()>, io::Error> {
         let cmd = Command {
             name: "use_theories".to_owned(),
@@ -350,8 +369,7 @@ impl IsabelleClient {
 #[cfg(test)]
 mod test {
 
-    use crate::client::{AsyncResult, IsabelleClient, SyncResult};
-    use crate::commands::{SessionBuildStartArgs, SessionStopArgs, UseTheoryArgs};
+    use super::*;
     use crate::server::run_server;
     use serial_test::serial;
 
@@ -384,7 +402,7 @@ mod test {
         let (port, pw) = run_server(Some("Test")).unwrap();
         let mut client = IsabelleClient::connect(None, port, &pw);
 
-        let arg = SessionBuildStartArgs::session("HOL");
+        let arg = SessionBuildArgs::session("HOL");
 
         let res = client.session_build(&arg).await.unwrap();
         match res {
@@ -405,7 +423,7 @@ mod test {
         let (port, pw) = run_server(Some("Test")).unwrap();
         let mut client = IsabelleClient::connect(None, port, &pw);
 
-        let arg = SessionBuildStartArgs::session("unknown_sessions");
+        let arg = SessionBuildArgs::session("unknown_sessions");
 
         let res = client.session_build(&arg).await.unwrap();
 
@@ -418,7 +436,7 @@ mod test {
         let (port, pw) = run_server(Some("Test")).unwrap();
         let mut client = IsabelleClient::connect(None, port, &pw);
 
-        let arg = SessionBuildStartArgs::session("HOL");
+        let arg = SessionBuildArgs::session("HOL");
 
         let res = client.session_start(&arg).await.unwrap();
         assert!(matches!(res, AsyncResult::Finished(_)));
@@ -430,7 +448,7 @@ mod test {
         let (port, pw) = run_server(Some("Test")).unwrap();
         let mut client = IsabelleClient::connect(None, port, &pw);
 
-        let arg = SessionBuildStartArgs::session("unknown_sessions");
+        let arg = SessionBuildArgs::session("unknown_sessions");
 
         let res = client.session_start(&arg).await.unwrap();
 
@@ -443,7 +461,7 @@ mod test {
         let (port, pw) = run_server(Some("Test")).unwrap();
         let mut client = IsabelleClient::connect(None, port, &pw);
 
-        let arg = SessionBuildStartArgs::session("HOL");
+        let arg = SessionBuildArgs::session("HOL");
         let res = client.session_start(&arg).await.unwrap();
         if let AsyncResult::Finished(res) = res {
             let arg = SessionStopArgs {
@@ -489,10 +507,11 @@ mod test {
         let (port, pw) = run_server(Some("Test")).unwrap();
         let mut client = IsabelleClient::connect(None, port, &pw);
 
-        let arg = SessionBuildStartArgs::session("HOL");
+        let arg = SessionBuildArgs::session("HOL");
         let res = client.session_start(&arg).await.unwrap();
         if let AsyncResult::Finished(res) = res {
-            let arg = UseTheoryArgs::for_session(&res.session_id, &["~~/src/HOL/Examples/Drinker"]);
+            let arg =
+                UseTheoriesArgs::for_session(&res.session_id, &["~~/src/HOL/Examples/Drinker"]);
 
             match client.use_theories(&arg).await.unwrap() {
                 AsyncResult::Error(e) => unreachable!("{:?}", e),
@@ -510,10 +529,10 @@ mod test {
         let (port, pw) = run_server(Some("Test")).unwrap();
         let mut client = IsabelleClient::connect(None, port, &pw);
 
-        let arg = SessionBuildStartArgs::session("HOL");
+        let arg = SessionBuildArgs::session("HOL");
         let res = client.session_start(&arg).await.unwrap();
         if let AsyncResult::Finished(res) = res {
-            let arg = UseTheoryArgs::for_session(&res.session_id, &["~~/src/HOL/foo"]);
+            let arg = UseTheoriesArgs::for_session(&res.session_id, &["~~/src/HOL/foo"]);
             let got = client.use_theories(&arg).await.unwrap();
 
             assert!(matches!(got, AsyncResult::Failed(_)));
