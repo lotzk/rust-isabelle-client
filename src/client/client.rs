@@ -101,7 +101,7 @@ pub struct IsabelleClient {
 impl IsabelleClient {
     /// Connect to an Isabelle server.
     ///
-    /// - `address`: specifies the server address, default is 127.0.0.1
+    /// - `address`: specifies the server address. If it is `None`, "127.0.0.1" is use as a default
     /// - `port`: specifies the server port
     /// - `pass`: the password
     pub fn connect(address: Option<&str>, port: u32, pass: &str) -> Self {

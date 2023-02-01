@@ -7,6 +7,7 @@ use std::{
 use tokio::process::Command;
 
 /// Arguments for running the raw ML process in batch mode.
+#[derive(Default)]
 pub struct ProcessArgs {
     /// The theories to load (-T). Multiple theories are loaded in the given order.
     pub theories: Vec<String>,
@@ -19,9 +20,32 @@ pub struct ProcessArgs {
     pub options: HashMap<String, String>,
 }
 
+impl ProcessArgs {
+    pub fn load_theories(ths: &[String]) -> Self {
+        Self {
+            theories: ths.to_vec(),
+            ..Default::default()
+        }
+    }
+}
+
 /// Runs the raw ML process in batch mode.
 /// Arguments for the command are specified in [ProcessArgs].
 /// Returns the process' output.
+///
+/// # Example
+///
+/// ```rust
+/// use isabelle_client::process::{batch_process, ProcessArgs};
+/// use tokio_test;
+/// # tokio_test::block_on(async {
+///
+///
+/// let args = ProcessArgs::load_theories(&[String::from("~~/src/HOL/Examples/Drinker")]);
+/// let output = batch_process(&args, None).await;
+/// assert!(output.unwrap().status.success());
+/// })
+/// ```
 pub async fn batch_process(
     args: &ProcessArgs,
     current_dir: Option<&PathBuf>,

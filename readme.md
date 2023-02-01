@@ -24,7 +24,7 @@ or run `cargo add isabelle-client` in your project root.
 
 ## Usage
 
-### Client and Server
+### Client
 
 To connect to an Isabelle server, first create an instance of the client by calling the `IsabelleClient::connect` method.
 The client implements a method for various commands supported by the Isabelle server. Currently, the following commands are supported
@@ -44,18 +44,18 @@ They return a `SyncResult` which indicates whether the Isabelle run the command 
 The asynchronous command (`session_build`, `session_start`, `session_stop`, and `use_theories`) spawn a new task on the server.
 The client waits for that task to terminate and returns an `AsyncResult` containing the result.
 
-#### Example
+Here is an example:
 
 ```rust
 use isabelle_client::client::{AsyncResult, IsabelleClient, SyncResult};
 use isabelle_client::client::commands::*;
 use isabelle_client::server::run_server;
 
-// Start a new Isabelle server locally, returning the port and the password
-let (port, pw) = run_server(Some("Test")).unwrap();
-
+let addr = "127.0.0.1";
+let port = 123456;
+let password = "server_password"
 // Connect to the server
-let mut client = IsabelleClient::connect(None, port, &pw);
+let mut client = IsabelleClient::connect(Some(addr), port, password);
 
 // Start session HOL
 let session_args = SessionBuildArgs::session("HOL");
@@ -72,22 +72,41 @@ client.shutdown();
 
 ### Server
 
-To start an Isabelle server, create an instance of the server and then call the start method. This will launch a new thread for the server and return a handle for the thread.
+Use the `run_server` function to start an Isabelle server or obtain the information (port, password) of a locally running instance, if the name is known.
 
-#### Example
+Here is an example for starting a server name "my-server".
 
 ```rust
+use isabelle_client::server::run_server;
 
+// Run an Isabelle server named "my-server" locally
+let (port, password) = run_server(Some("my-server")).unwrap();
 ```
+
+Note that this is just a wrapper for `isabelle server -n my-server`.
+In particular, if a server named "my-server" is already running locally, the function will return the port and password of the existing server.
 
 ### Batch Mode
 
-To run Isabelle in batch mode, use the run_batch function. This function takes the path to the Isabelle installation and the batch mode options, and returns a Result type with the output of the process.
+The `batch_process` function is a wrapper for asynchronously calling for `isabelle process`.
+It takes a `ProcessArgs` as an argument which consists of
 
-#### Example
+- The theories to load
+- The session directories
+- Optionally the logic session name, and
+- Options, given key value pairs
+
+The available options can be found in the system manual or using the `isabelle options` command.
+The `OptionsBuilder` provides a convenient way to construct common options.
+
+Here is an example:
 
 ```rust
+use isabelle_client::process::{batch_process, ProcessArgs};
 
+let args = ProcessArgs::load_theories(&[String::from("~~/src/HOL/Examples/Drinker")]);
+let output = batch_process(&args, None).await;
+assert!(output.unwrap().status.success());
 ```
 
 ## License
