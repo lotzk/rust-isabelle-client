@@ -24,6 +24,8 @@ or run `cargo add isabelle-client` in your project root.
 
 ## Usage
 
+To use the server or batch utilities, an Isabelle installation is required.
+
 ### Client
 
 To connect to an Isabelle server, first create an instance of the client by calling the `IsabelleClient::connect` method.
@@ -50,24 +52,23 @@ Here is an example:
 use isabelle_client::client::{AsyncResult, IsabelleClient, SyncResult};
 use isabelle_client::client::commands::*;
 use isabelle_client::server::run_server;
+use tokio_test::block_on;
 
-let addr = "127.0.0.1";
-let port = 123456;
-let password = "server_password"
-// Connect to the server
-let mut client = IsabelleClient::connect(Some(addr), port, password);
+// Start a server and connect to it
+let mut server = run_server(Some("test-server")).unwrap();
+let mut client = IsabelleClient::for_server(&server);
 
 // Start session HOL
 let session_args = SessionBuildArgs::session("HOL");
-let session = client.session_build(&session_args).await.unwrap().unwrap();
+let session = block_on(client.session_start(&session_args)).unwrap();
 // Load `Drinker` theory into the HOL session
-let th_args = UseTheoriesArgs::for_session(&session.session_id, &["~~/src/HOL/Examples/Drinker"]);
-let load_th = client.use_theories(&th_args).await.unwrap().unwrap();
+let th_args = UseTheoriesArgs::for_session(&session.finished().session_id, &["~~/src/HOL/Examples/Drinker"]);
+let load_th = block_on(client.use_theories(&th_args)).unwrap();
 // Assert loading theory was successful
-assert!(load_th.ok)
+assert!(load_th.finished().ok);
 
-// Shut down the server 
-client.shutdown();
+// Exit the server 
+server.exit();
 ```
 
 ### Server
@@ -80,7 +81,13 @@ Here is an example for starting a server name "my-server".
 use isabelle_client::server::run_server;
 
 // Run an Isabelle server named "my-server" locally
-let (port, password) = run_server(Some("my-server")).unwrap();
+let mut server = run_server(Some("my-server")).unwrap();
+
+// ...
+
+// Exit the server
+server.exit();
+
 ```
 
 Note that this is just a wrapper for `isabelle server -n my-server`.
@@ -103,9 +110,10 @@ Here is an example:
 
 ```rust
 use isabelle_client::process::{batch_process, ProcessArgs};
+use tokio_test::block_on;
 
 let args = ProcessArgs::load_theories(&[String::from("~~/src/HOL/Examples/Drinker")]);
-let output = batch_process(&args, None).await;
+let output = block_on(batch_process(&args, None));
 assert!(output.unwrap().status.success());
 ```
 

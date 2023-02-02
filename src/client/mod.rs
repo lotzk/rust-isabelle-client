@@ -7,10 +7,12 @@
 /// use isabelle_client::client::commands::*;
 /// use isabelle_client::server::run_server;
 ///
-/// let (port, pw) = run_server(Some("Test")).unwrap();
-/// let mut client = IsabelleClient::connect(None, port, &pw);
+/// let mut server = run_server(Some("test")).unwrap();
+/// let mut client = IsabelleClient::for_server(&server);
 /// // Do something with the client
-/// client.shutdown();
+/// // ...
+/// // Kill the server when done
+/// server.exit();
 ///```
 pub mod client;
 pub mod commands;

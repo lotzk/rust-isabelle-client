@@ -1,6 +1,8 @@
 use serde::Deserialize;
 use serde::Serialize;
 
+use crate::server::IsabelleServer;
+
 use super::commands::*;
 use super::results::*;
 use std::fmt::Display;
@@ -49,7 +51,8 @@ pub enum SyncResult<T, E> {
 }
 
 impl<T, E> SyncResult<T, E> {
-    pub fn unwrap(&self) -> &T {
+    /// Returns the result value if the command was successful, panics otherwise.
+    pub fn ok(&self) -> &T {
         match self {
             SyncResult::Ok(t) => t,
             SyncResult::Error(_) => panic!("Called unwrap on error value"),
@@ -69,7 +72,8 @@ pub enum AsyncResult<T, F> {
 }
 
 impl<T, F> AsyncResult<T, F> {
-    pub fn unwrap(&self) -> &T {
+    /// Returns the result value if the task was successful, panics otherwise.
+    pub fn finished(&self) -> &T {
         match self {
             AsyncResult::Finished(t) => t,
             AsyncResult::Failed(_) => panic!("Called unwrap on Failed result"),
@@ -94,12 +98,16 @@ pub struct FailedResult<T> {
 
 /// Provides interaction with Isabelle servers.
 pub struct IsabelleClient {
+    /// The address of the Isabelle server
     addr: String,
+    /// The password used to authenticate with the Isabelle server
     pass: String,
 }
 
 impl IsabelleClient {
     /// Connect to an Isabelle server.
+    ///
+    /// # Arguments
     ///
     /// - `address`: specifies the server address. If it is `None`, "127.0.0.1" is use as a default
     /// - `port`: specifies the server port
@@ -111,6 +119,11 @@ impl IsabelleClient {
             addr,
             pass: pass.to_owned(),
         }
+    }
+
+    /// Connect to an Isabelle server using the information from a [IsabelleServer] instance.
+    pub fn for_server(server: &IsabelleServer) -> Self {
+        Self::connect(None, server.port(), server.password())
     }
 
     /// Performs the initial password exchange(i.e. password exchange) between a new client client and server.
@@ -373,13 +386,30 @@ mod test {
     use crate::server::run_server;
     use serial_test::serial;
 
+    struct TestContext {
+        server: IsabelleServer,
+        client: IsabelleClient,
+    }
+
+    impl Drop for TestContext {
+        fn drop(&mut self) {
+            self.server.exit().unwrap();
+        }
+    }
+
+    fn setup_test() -> TestContext {
+        let server = run_server(Some("test")).unwrap();
+        let client = IsabelleClient::for_server(&server);
+        TestContext { server, client }
+    }
+
     #[tokio::test]
     #[serial]
     async fn test_echo() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
 
         let res = client.echo("echo").await.unwrap();
+
         match res {
             SyncResult::Ok(r) => assert_eq!(r, "echo".to_owned()),
             SyncResult::Error(_) => unreachable!(),
@@ -389,8 +419,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_shutdown() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
 
         let res = client.shutdown().await.unwrap();
         assert!(matches!(res, SyncResult::Ok(())));
@@ -399,8 +428,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_session_build_hol() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
 
         let arg = SessionBuildArgs::session("HOL");
 
@@ -420,9 +448,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_session_build_unknown() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
-
+        let client = &mut setup_test().client;
         let arg = SessionBuildArgs::session("unknown_sessions");
 
         let res = client.session_build(&arg).await.unwrap();
@@ -433,8 +459,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_session_start_hol() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
 
         let arg = SessionBuildArgs::session("HOL");
 
@@ -445,9 +470,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_session_start_unknown() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
-
+        let client = &mut setup_test().client;
         let arg = SessionBuildArgs::session("unknown_sessions");
 
         let res = client.session_start(&arg).await.unwrap();
@@ -458,8 +481,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_session_stop_active() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
 
         let arg = SessionBuildArgs::session("HOL");
         let res = client.session_start(&arg).await.unwrap();
@@ -480,8 +502,8 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_session_stop_inactive() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
+
         let arg = SessionStopArgs {
             session_id: "03202b1a-bde6-4d84-926b-d435aac365fe".to_owned(),
         };
@@ -492,8 +514,8 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn test_session_stop_invalid() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
+
         let arg = SessionStopArgs {
             session_id: "abc".to_owned(),
         };
@@ -504,8 +526,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn use_theory_in_hol() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
 
         let arg = SessionBuildArgs::session("HOL");
         let res = client.session_start(&arg).await.unwrap();
@@ -526,8 +547,7 @@ mod test {
     #[tokio::test]
     #[serial]
     async fn use_theory_unknown() {
-        let (port, pw) = run_server(Some("Test")).unwrap();
-        let mut client = IsabelleClient::connect(None, port, &pw);
+        let client = &mut setup_test().client;
 
         let arg = SessionBuildArgs::session("HOL");
         let res = client.session_start(&arg).await.unwrap();
