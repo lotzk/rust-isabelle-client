@@ -1,5 +1,4 @@
 use serde::{Deserialize, Serialize};
-
 /// Arguments for `cancel` command
 #[derive(Deserialize, Serialize, Debug)]
 pub struct CancelArgs {

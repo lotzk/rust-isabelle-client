@@ -120,7 +120,7 @@ pub fn exit(name: &str) -> io::Result<ExitStatus> {
         .arg(name)
         .arg("-x")
         .spawn()?;
-    io::Result::Ok(child.wait()?)
+    child.wait()
 }
 
 mod tests {

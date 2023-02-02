@@ -62,10 +62,10 @@ pub async fn batch_process(
     }
 
     for t in &args.theories {
-        isabelle_cmd.arg("-T").arg(&t);
+        isabelle_cmd.arg("-T").arg(t);
     }
     for d in &args.session_dirs {
-        isabelle_cmd.arg("-d").arg(&d);
+        isabelle_cmd.arg("-d").arg(d);
     }
 
     for (k, v) in args.options.iter() {
@@ -81,10 +81,10 @@ pub struct OptionsBuilder {
     options: HashMap<String, String>,
 }
 
-impl Into<HashMap<String, String>> for OptionsBuilder {
+impl From<OptionsBuilder> for HashMap<String, String> {
     /// Consumes the builder and return a key value map of the specified options.
-    fn into(self) -> HashMap<String, String> {
-        self.options
+    fn from(val: OptionsBuilder) -> Self {
+        val.options
     }
 }
 

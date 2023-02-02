@@ -74,6 +74,7 @@ server.exit();
 ### Server
 
 Use the `run_server` function to start an Isabelle server or obtain the information (port, password) of a locally running instance, if the name is known.
+A running server can be exited using the `exit` method.
 
 Here is an example for starting a server name "my-server".
 
