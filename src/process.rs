@@ -68,6 +68,10 @@ pub async fn batch_process(
         isabelle_cmd.arg("-d").arg(d);
     }
 
+    if let Some(l) = &args.logic {
+        isabelle_cmd.arg("-l").arg(l);
+    }
+
     for (k, v) in args.options.iter() {
         isabelle_cmd.arg("-o").arg(format!("{}={}", k, v));
     }
