@@ -119,4 +119,4 @@ assert!(output.unwrap().status.success());
 
 ## License
 
-This library is licensed under the MIT license. See the LICENSE file for details.
+This library is licensed under the Apache-2.0 license.
