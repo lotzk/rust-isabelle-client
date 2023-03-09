@@ -16,7 +16,7 @@ To use this library, simply include it as a dependency in your project's Cargo.t
 
 ```toml
 [dependencies]
-isabelle = "0.1"
+isabelle-client = "0.1.0"
 ```
 
 or run `cargo add isabelle-client` in your project root.
