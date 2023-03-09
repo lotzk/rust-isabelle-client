@@ -2,6 +2,12 @@
 name = "isabelle-client"
 version = "0.1.0"
 edition = "2021"
+license = "Apache-2.0"
+description = "Client to interact with Isabelle servers"
+homepage = "https://github.com/lotzk/rust-isabelle-client"
+repository = "https://github.com/lotzk/rust-isabelle-client"
+readme = "readme.md"
+keywords = ["Isabelle"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

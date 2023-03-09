@@ -1,15 +1,14 @@
 # Isabelle Client Library
 
-A complete implementation of an Isabelle client in Rust, along with facilities for starting Isabelle servers and running the Isabelle process in batch mode.
+An implementation of the Isabelle client in Rust, along with facilities for starting Isabelle servers and running the Isabelle process in batch mode.
 
 Refer to the [Isabelle System Manual](https://isabelle.in.tum.de/dist/Isabelle2022/doc/system.pdf) for further information.
 
 ## Key Features
 
-- Use a TCP client to asynchronously interact with Isabelle servers
-- Connect to running server instances or start new local servers
-- Automatically fetch the password of servers running locally
-- Run the Isabelle process in batch mode
+- TCP client for async interactions with Isabelle servers
+- Local Isabelle server startup and credential retrieval
+- Raw Isabelle process batch mode wrapper
 
 ## Installation
 
@@ -29,7 +28,7 @@ To use the server or batch utilities, an Isabelle installation is required.
 ### Client
 
 To connect to an Isabelle server, first create an instance of the client by calling the `IsabelleClient::connect` method.
-The client implements a method for various commands supported by the Isabelle server. Currently, the following commands are supported
+The client implement methods for various commands supported by the Isabelle server. Currently, the following commands are supported
 
 - `echo`
 - `shutdown`
@@ -40,17 +39,17 @@ The client implements a method for various commands supported by the Isabelle se
 - `use_theories`
 - `purger_theories`
 
-The corresponding methods are `async`, that is, you need to call `await` to wait until execution finishes and to obtain the result.
+All methods are `async` and an `await` call is required to wait until execution finishes and to obtain the result.
 The synchronous commands (`echo`, `shutdown`, `cancel`, and `purge_theories`) usually terminate immediately.
 They return a `SyncResult` which indicates whether the Isabelle run the command successfully or not, and contains the result.
-The asynchronous command (`session_build`, `session_start`, `session_stop`, and `use_theories`) spawn a new task on the server.
+The asynchronous commands (`session_build`, `session_start`, `session_stop`, and `use_theories`) spawn a new task on the server.
 The client waits for that task to terminate and returns an `AsyncResult` containing the result.
 
 Here is an example:
 
 ```rust
 use isabelle_client::client::{AsyncResult, IsabelleClient, SyncResult};
-use isabelle_client::client::commands::*;
+use isabelle_client::client::args::*;
 use isabelle_client::server::run_server;
 use tokio_test::block_on;
 
@@ -73,7 +72,7 @@ server.exit();
 
 ### Server
 
-Use the `run_server` function to start an Isabelle server or obtain the information (port, password) of a locally running instance, if the name is known.
+Use the `run_server` function to start an Isabelle server or obtain the credentials (port, password) of a locally running instance, if the name is known.
 A running server can be exited using the `exit` method.
 
 Here is an example for starting a server name "my-server".
@@ -96,7 +95,7 @@ In particular, if a server named "my-server" is already running locally, the fun
 
 ### Batch Mode
 
-The `batch_process` function is a wrapper for asynchronously calling for `isabelle process`.
+The `batch_process` function is a wrapper for asynchronously calling the `isabelle process` tool.
 It takes a `ProcessArgs` as an argument which consists of
 
 - The theories to load
