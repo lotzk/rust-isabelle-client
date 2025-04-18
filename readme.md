@@ -1,5 +1,9 @@
 # Isabelle Client Library
 
+![Crates.io Version](https://img.shields.io/crates/v/isabelle-client)
+![docs.rs](https://img.shields.io/docsrs/isabelle-client)
+
+
 An implementation of the Isabelle client in Rust, along with facilities for starting Isabelle servers and running the Isabelle process in batch mode.
 
 Refer to the [Isabelle System Manual](https://isabelle.in.tum.de/dist/Isabelle2022/doc/system.pdf) for further information.
